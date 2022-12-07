@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/blueimp-md5/2.10.0/js/md5.min.js"></script>
+    <!-- <link rel="stylesheet" type="text/css" href="./webupload/bootstrap/css/bootstrap.min.css"> -->
+</head>
+<style>
+
+</style>
+
+<body>
+    <div id="fileUploadContainer">
+        <select style="width: 150px;float: left;" class="custom-select custom-select-lg mb-3" id="selected"
+            onchange="changeChoose()">
+            <option selected value="file">选择文件</option>
+            <option value="folder">选择文件夹</option>
+        </select>
+        <div style="width: auto;float: left;">
+            <input type="file" multiple class="file uploadfile" id="file" value="选择文件" />
+            <input type="file" webkitdirectory class="folder uploadfile" id="folder" value="选择文件夹"
+                style="display: none;" />
+        </div>
+        <progress id="progress" max="100" value="0"></progress>
+        <div id="uploadStatus" class="webuploader-pick" style="float: left; margin-right: 10px" status="upload"
+            onclick="changeStatus(this)">上传</div>
+    </div>
+    <script>
+        var xmlhttp;
+        // 设定是上传文件夹还是文件
+        function changeChoose() {
+            // console.log($('#selected option:selected').val())
+            var obj = document.getElementById("selected"); //定位id
+            var index = obj.selectedIndex; // 选中索引
+            var text = obj.options[index].text; // 选中文本
+            var value = obj.options[index].value; // 选中值
+            if (value == 'file') {
+                document.getElementById('file').style.display = 'block';
+                document.getElementById('folder').style.display = 'none';
+            }
+            if (value == 'folder') {
+                document.getElementById('file').style.display = 'none';
+                document.getElementById('folder').style.display = 'block';
+            }
+        }
+        function upload() {
+            let fileObj = document.getElementById('file').files[0];
+            let fd = new FormData();
+            var md5Val = md5(fileObj.name);
+            fd.append('md5', md5Val);
+            fd.append('filename', fileObj.name);
+            // ajax('/api', 'POST', fd, mergeChunk);
+            // 判断文件是否存在
+            ajax('/file/isExist', 'POST', fd, isExist);
+        }
+        function uploadChunk(chunkSize, start, index) {
+            let fileObj = document.getElementById('file').files[0];
+            // 文件名md5
+            var md5Val = md5(fileObj.name);
+
+            // 上传完成
+            if (start >= fileObj.size) {
+                let fd = new FormData();
+                fd.append('md5', md5Val);
+                fd.append('filename', fileObj.name);
+
+                ajax('/file/merge', 'POST', fd, mergeChunk);
+                return;
+            }
+
+            // 获取文件块的终止字节
+            let end = (start + chunkSize > fileObj.size) ? fileObj.size : (start + chunkSize);
+            // 将文件切块上传
+            let fd = new FormData();
+            fd.append('file', fileObj.slice(start, end));
+            fd.append('md5', md5Val);
+            fd.append('chunk', index);
+
+            let xmlhttp = new XMLHttpRequest();
+            xmlhttp.open('POST', 'http://127.0.0.1:5000/isUpload', true);
+            xmlhttp.onload = function () {
+                if (this.readyState == 4 && this.status == 200) {
+                    // 上传一块完成后修改进度条信息，然后上传下一块
+                    let progress = document.getElementById('progress');
+                    progress.max = fileObj.size;
+                    progress.value = end;
+                    index += 1;
+                    uploadChunk(chunkSize, end, index);
+                }
+            }
+            xmlhttp.send(fd);
+        }
+
+        function mergeChunk(res) {
+            console.log(res);
+        }
+        function isExist(res) {
+            console.log(JSON.parse(res).isFileExist)
+
+            var result = JSON.parse(res);
+            console.log(result.chunk)
+            if (result.isFileExist == 'isExist') {
+                alert('文件存在，请改变名称或者上传其他文件!');
+                return true
+            } else {
+                var chunkSize = 1 * 1024 * 1024;
+                var start = 0;
+                var index = 0;
+                if (result.chunk == 0) {
+                    start = 0;
+                    index = 0;
+                } else {
+                    start = result.chunk * chunkSize;
+                    index = result.chunk;
+                }
+
+                uploadChunk(chunkSize, start, index);
+            }
+        }
+        //继续上传和暂停上传
+        function changeStatus(e) {
+            var status = document.getElementById('uploadStatus').getAttribute('status');
+            if (status == "upload") {
+                document.getElementById('uploadStatus').innerHTML = "暂停上传";
+                document.getElementById('uploadStatus').setAttribute("status", "suspend");
+                upload();
+            }
+            else {
+                document.getElementById('uploadStatus').innerHTML = "继续上传";
+                document.getElementById('uploadStatus').setAttribute("status", "upload");
+                ajax('/api', 'POST', '', mergeChunk);
+            }
+            console.log(status)
+        }
+
+        //ajax model
+        function ajax(url, method, msg, fn, id, innerHTMLId) {
+            if (window.XMLHttpRequest) {
+                xmlhttp = new XMLHttpRequest();
+            } else {
+                xmlhttp = new ActiveXObject("Microsoft.XMLHTTP");
+            }
+            xmlhttp.onreadystatechange = function () {
+                if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+                    fn(xmlhttp.responseText, url, id, innerHTMLId)
+                }
+            }
+            xmlhttp.open(method, url, true);
+            xmlhttp.send(msg);
+        }
+    </script>
+</body>
+
+</html>
